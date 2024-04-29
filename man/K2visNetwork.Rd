@@ -4,10 +4,21 @@
 \alias{K2visNetwork}
 \title{Interactive K2 dendrogram}
 \usage{
-K2visNetwork(K2res)
+K2visNetwork(
+  K2res,
+  annot = c("partition", "pathways", "genes"),
+  alpha = 0.05,
+  limit = 5
+)
 }
 \arguments{
 \item{K2res}{A list object. The output of runK2tax().}
+
+\item{annot}{One of 'partition', 'pathways', 'genes, to specify annotation type.}
+
+\item{alpha}{Significance level with which to filter pathways/genes.}
+
+\item{limit}{Number of pathways/genes to include in output.}
 }
 \value{
 An interactive dendrogram created by `visNetwork::visNetwork()`.

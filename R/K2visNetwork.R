@@ -2,6 +2,9 @@
 #'
 #' Create an interactive dendrogram of the K2 Taxonomer results
 #' @param K2res A list object. The output of runK2tax().
+#' @param annot One of 'partition', 'pathways', 'genes, to specify annotation type.
+#' @param alpha Significance level with which to filter pathways/genes.
+#' @param limit Number of pathways/genes to include in output.
 #' @references
 #'  \insertRef{reed_2020}{K2Taxonomer}
 #' @return An interactive dendrogram created by `visNetwork::visNetwork()`.
@@ -15,7 +18,11 @@
 #' K2visNetwork(K2res)
 #'
 
-K2visNetwork <- function(K2res) {
+K2visNetwork <- function(K2res, 
+                         annot = c("partition", "pathways", "genes"),
+                         alpha = 0.05,
+                         limit = 5,
+                         recursive = FALSE) {
 
     ## Run checks
     .isK2(K2res)
@@ -26,8 +33,9 @@ K2visNetwork <- function(K2res) {
     }
 
     ## Get results list
+    dendrogram <- K2dendro(K2res)
     K2res <- K2results(K2res)
-
+    
     ## Generate Matrix from visNetwork
     mat <- matrix(0, nrow=length(K2res), ncol=length(K2res[[1]]$obs[[1]]) +
         length(K2res[[1]]$obs[[2]]))
@@ -42,12 +50,52 @@ K2visNetwork <- function(K2res) {
     sizes <- apply(mat, 1, function(x) sum(x != 0))
 
     ## Add Labels
-    titles <- unlist(lapply(K2res, function(x) paste("Probability:",
-        signif(x$bootP, 2), "<br>", "Members(Edge:1):", length(x$obs[[1]]),
-        "<br>", "Members(Edge:2):", length(x$obs[[2]]), "<br>",
-        "Stability(Edge:1):", signif(x$stability$clusters[[1]],
-            2), "<br>", "Stability(Edge:2):", signif(x$stability$clusters[[2]],
-            2))))
+    annot <- match.arg(annot)
+    if (annot == "partition") {
+      titles <- unlist(lapply(K2res, function(x) paste("Probability:", signif(x$bootP, 2), "<br>", 
+                                                       "Members(Edge:1):", length(x$obs[[1]]), "<br>", 
+                                                       "Members(Edge:2):", length(x$obs[[2]]), "<br>",
+                                                       "Stability(Edge:1):", signif(x$stability$clusters[[1]], 2), "<br>", 
+                                                       "Stability(Edge:2):", signif(x$stability$clusters[[2]], 2))))
+    } else if (annot == "pathways") {
+      if (!recursive) {
+        edge1_annots <- lapply(K2res,
+                               function(x) x$dsse %>%
+                                 dplyr::filter(edge == "1" & fdr < alpha) %>%
+                                 dplyr::arrange(desc(coef)) %>%
+                                 dplyr::slice(1:limit) %>%
+                                 dplyr::pull(category))
+        edge2_annots <- lapply(K2res,
+                               function(x) x$dsse %>%
+                                 dplyr::filter(edge == "2" & fdr < alpha) %>%
+                                 dplyr::arrange(desc(coef)) %>%
+                                 dplyr::slice(1:limit) %>%
+                                 dplyr::pull(category))
+        titles <- unlist(lapply(names(K2res), function(x) paste("Edge 1:", str_flatten(edge1_annots[[x]], collapse = " "), "<br>",
+                                                                "Edge 2:", str_flatten(edge2_annots[[x]], collapse = " "))))
+      } else {
+        titles <- recursive_annotation(dendrogram = dendrogram, K2res = K2res)
+        titles <- unlist(titles)
+        titles <- titles[names(K2res)]
+      }
+
+    } else if (annot == "genes") {
+      edge1_annots <- lapply(K2res, 
+                             function(x) x$dge %>% 
+                               dplyr::filter(edge == "1" & fdr < alpha) %>% 
+                               dplyr::arrange(desc(coef)) %>% 
+                               dplyr::slice(1:limit) %>% 
+                               dplyr::pull(gene))
+      edge2_annots <- lapply(K2res, 
+                             function(x) x$dge %>% 
+                               dplyr::filter(edge == "2" & fdr < alpha) %>% 
+                               dplyr::arrange(desc(coef)) %>% 
+                               dplyr::slice(1:limit) %>% 
+                               dplyr::pull(gene))
+      titles <- unlist(lapply(names(K2res), function(x) paste("Edge 1:", str_flatten(edge1_annots[[x]], collapse = " "), "<br>", 
+                                                              "Edge 2:", str_flatten(edge2_annots[[x]], collapse = " "))))
+    }
+
     names(titles) <- names(K2res)
 
     ## initialize leafe names
@@ -132,4 +180,50 @@ K2visNetwork <- function(K2res) {
         visHierarchicalLayout(direction="LR")
 
     return(p)
+}
+
+recursive_annotation <- function(dendrogram, K2res, exclude=c(), annots = list(), alpha = 0.05, limit = 10) {
+  if (is.na(attr(dendrogram, "label"))) {
+    print("leaf")
+  } else {
+    curr_label <- attr(dendrogram, "label")
+    left_label <- attr(dendrogram[[1]], "label")
+    right_label <- attr(dendrogram[[2]], "label")
+    
+    # get annotations for Edge 1 and Edge 2
+    edge1_annots <- K2res[[curr_label]][["dsse"]] %>% 
+      dplyr::filter(edge == "1" & fdr < alpha) %>% 
+      dplyr::arrange(desc(coef)) %>% 
+      dplyr::slice(1:limit) %>% 
+      dplyr::pull(category)
+    edge2_annots <- K2res[[curr_label]][["dsse"]] %>% 
+      dplyr::filter(edge == "2" & fdr < alpha) %>% 
+      dplyr::arrange(desc(coef)) %>% 
+      dplyr::slice(1:limit) %>% 
+      dplyr::pull(category)
+    
+    # Remove excluded annotations 
+    edge1_annots <- edge1_annots[!(edge1_annots %in% exclude)]
+    edge2_annots <- edge2_annots[!(edge2_annots %in% exclude)]
+    
+    annots[[curr_label]] <- paste("Edge 1:", str_flatten(edge1_annots, collapse = " "), "<br>", 
+                                  "Edge 2:", str_flatten(edge2_annots, collapse = " "))
+    
+    # Add current edge annotations to excluded sets
+    exclude_l <- unique(c(exclude, edge2_annots))
+    exclude_r <- unique(c(exclude, edge1_annots))
+    
+    # Keep annotating Edge 1
+    if(!is.na(left_label)) {
+      #print(paste0("Edge 1 node label ", left_label, " my excluded annotations are ", str_flatten(exclude_l, collapse = " "), " my annotations are ", str_flatten(edge1_annots, collapse = " ")))
+      annots <- recursive_annotation(dendrogram[[1]], K2res, exclude = exclude_l, annots = annots)
+    }
+    
+    # Keep annotating Edge 2
+    if(!is.na(right_label)) {
+      #print(paste0("Edge 2 node label ", right_label, " my excluded annotations are ", str_flatten(exclude_r, collapse = " "), " my annotations are ", str_flatten(edge2_annots, collapse = " ")))
+      annots <- recursive_annotation(dendrogram[[2]], K2res, exclude = exclude_r, annots = annots)
+    }
+  }
+  return(annots)
 }
