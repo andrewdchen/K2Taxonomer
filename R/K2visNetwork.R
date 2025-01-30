@@ -5,18 +5,12 @@
 #' @param annot One of 'partition', 'pathways', 'genes, to specify annotation type.
 #' @param alpha Significance level with which to filter pathways/genes.
 #' @param limit Number of pathways/genes to include in output.
+#' @param labelsize Size of labels displayed in window.
 #' @references
 #'  \insertRef{reed_2020}{K2Taxonomer}
-#' @return An interactive dendrogram created by `visNetwork::visNetwork()`.
+#' @return An interactive dendrogram created by visNetwork::visNetwork().
+#' @inheritParams K2tax
 #' @export
-#' @examples
-#'
-#' ## Read in K2 Taxonomer results
-#' data(K2res)
-#'
-#' ## Generate interactive dendrogram
-#' K2visNetwork(K2res)
-#'
 
 K2visNetwork <- function(K2res, 
                          annot = c("partition", "pathways", "genes"),
@@ -34,17 +28,17 @@ K2visNetwork <- function(K2res,
 
     ## Get results list
     dendrogram <- K2dendro(K2res)
-    K2res <- K2results(K2res)
+    K2r <- K2results(K2res)
     
     ## Generate Matrix from visNetwork
-    mat <- matrix(0, nrow=length(K2res), ncol=length(K2res[[1]]$obs[[1]]) +
-        length(K2res[[1]]$obs[[2]]))
-    colnames(mat) <- c(K2res[[1]]$obs[[1]], K2res[[1]]$obs[[2]])
-    for (i in seq_len(length(K2res))) {
-        mat[i, K2res[[i]]$obs[[1]]] <- 1
-        mat[i, K2res[[i]]$obs[[2]]] <- 2
+    mat <- matrix(0, nrow=length(K2r), ncol=length(K2r[[1]]$obs[[1]]) +
+        length(K2r[[1]]$obs[[2]]))
+    colnames(mat) <- c(K2r[[1]]$obs[[1]], K2r[[1]]$obs[[2]])
+    for (i in seq_len(length(K2r))) {
+        mat[i, K2r[[i]]$obs[[1]]] <- 1
+        mat[i, K2r[[i]]$obs[[2]]] <- 2
     }
-    rownames(mat) <- names(K2res)
+    rownames(mat) <- names(K2r)
 
     ## Calculate sizes
     sizes <- apply(mat, 1, function(x) sum(x != 0))
@@ -52,54 +46,59 @@ K2visNetwork <- function(K2res,
     ## Add Labels
     annot <- match.arg(annot)
     if (annot == "partition") {
-      titles <- unlist(lapply(K2res, function(x) paste("Probability:", signif(x$bootP, 2), "<br>", 
-                                                       "Members(Edge:1):", length(x$obs[[1]]), "<br>", 
-                                                       "Members(Edge:2):", length(x$obs[[2]]), "<br>",
-                                                       "Stability(Edge:1):", signif(x$stability$clusters[[1]], 2), "<br>", 
-                                                       "Stability(Edge:2):", signif(x$stability$clusters[[2]], 2))))
+      titles <- unlist(lapply(names(K2r), function(nam) {
+        x <- K2r[[nam]]
+        paste(
+          "Node:", nam, "<br>",
+          "Probability:", signif(x$bootP, 2), "<br>", 
+          "Members(Edge:1):", length(x$obs[[1]]), "<br>", 
+          "Members(Edge:2):", length(x$obs[[2]]), "<br>",
+          "Stability(Edge:1):", signif(x$stability$clusters[[1]], 2), "<br>", 
+          "Stability(Edge:2):", signif(x$stability$clusters[[2]], 2))
+      }))
     } else if (annot == "pathways") {
       if (!recursive) {
-        edge1_annots <- lapply(K2res,
+        edge1_annots <- lapply(K2r,
                                function(x) x$dsse %>%
                                  dplyr::filter(edge == "1" & fdr < alpha) %>%
                                  dplyr::arrange(desc(coef)) %>%
                                  dplyr::slice(1:limit) %>%
                                  dplyr::pull(category))
-        edge2_annots <- lapply(K2res,
+        edge2_annots <- lapply(K2r,
                                function(x) x$dsse %>%
                                  dplyr::filter(edge == "2" & fdr < alpha) %>%
                                  dplyr::arrange(desc(coef)) %>%
                                  dplyr::slice(1:limit) %>%
                                  dplyr::pull(category))
-        titles <- unlist(lapply(names(K2res), function(x) paste("Edge 1:", str_flatten(edge1_annots[[x]], collapse = " "), "<br>",
+        titles <- unlist(lapply(names(K2r), function(x) paste("Edge 1:", str_flatten(edge1_annots[[x]], collapse = " "), "<br>",
                                                                 "Edge 2:", str_flatten(edge2_annots[[x]], collapse = " "))))
       } else {
-        titles <- recursive_annotation(dendrogram = dendrogram, K2res = K2res)
+        titles <- recursive_annotation(dendrogram = dendrogram, K2res = K2r)
         titles <- unlist(titles)
-        titles <- titles[names(K2res)]
+        titles <- titles[names(K2r)]
       }
 
     } else if (annot == "genes") {
-      edge1_annots <- lapply(K2res, 
+      edge1_annots <- lapply(K2r, 
                              function(x) x$dge %>% 
                                dplyr::filter(edge == "1" & fdr < alpha) %>% 
                                dplyr::arrange(desc(coef)) %>% 
                                dplyr::slice(1:limit) %>% 
                                dplyr::pull(gene))
-      edge2_annots <- lapply(K2res, 
+      edge2_annots <- lapply(K2r, 
                              function(x) x$dge %>% 
                                dplyr::filter(edge == "2" & fdr < alpha) %>% 
                                dplyr::arrange(desc(coef)) %>% 
                                dplyr::slice(1:limit) %>% 
                                dplyr::pull(gene))
-      titles <- unlist(lapply(names(K2res), function(x) paste("Edge 1:", str_flatten(edge1_annots[[x]], collapse = " "), "<br>", 
+      titles <- unlist(lapply(names(K2r), function(x) paste("Edge 1:", str_flatten(edge1_annots[[x]], collapse = " "), "<br>", 
                                                               "Edge 2:", str_flatten(edge2_annots[[x]], collapse = " "))))
     }
 
-    names(titles) <- names(K2res)
+    names(titles) <- names(K2r)
 
-    ## initialize leafe names
-    len <- length(K2res)
+    ## initialize leaf names
+    len <- length(K2r)
     nalphabets <- ceiling(ncol(mat)/length(letters))
     nAlphabets <- ceiling(len/length(letters))
     alphabets <- unlist(lapply(seq_len(nalphabets), function(x) {
@@ -172,12 +171,14 @@ K2visNetwork <- function(K2res,
 
     ## Generate network
     nodes <- data.frame(id=names(levs), title=titles, level=levs,
-        label=labs, shape=shapes, stringsAsFactors=FALSE)
+        label=labs, shape=shapes, font.size=labelsize, 
+        stringsAsFactors=FALSE)
     edges <- data.frame(from=source, to=target, stringsAsFactors=FALSE)
 
     ## Generate plot
     p <- visNetwork(nodes, edges) %>% visEdges(arrows="to") %>%
-        visHierarchicalLayout(direction="LR")
+        visHierarchicalLayout(direction="LR") %>%
+        visInteraction(zoomSpeed = 0.1)
 
     return(p)
 }
