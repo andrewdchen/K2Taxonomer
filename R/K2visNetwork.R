@@ -16,6 +16,7 @@ K2visNetwork <- function(K2res,
                          annot = c("partition", "pathways", "genes"),
                          alpha = 0.05,
                          limit = 5,
+                         labelsize = 50,
                          recursive = FALSE) {
 
     ## Run checks
